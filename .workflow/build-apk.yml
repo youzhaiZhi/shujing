@@ -1,0 +1,85 @@
+version: '1.0'
+name: build-apk
+displayName: 构建 Android APK
+
+triggers:
+  trigger: auto
+  push:
+    branches:
+      include:
+        - master
+
+stages:
+  - name: build
+    displayName: 构建 APK
+    strategy: naturally
+    trigger: auto
+    steps:
+      - step: build@gradle
+        name: build_apk
+        displayName: Flutter 构建 APK
+        jdkVersion: 17
+        gradleVersion: 4.4
+        # Gitee Go 无官方 Flutter 插件，这里在 gradle 构建环境内
+        # 自装 Flutter SDK 与 Android SDK（全部走国内镜像）
+        commands:
+          - export WORK=$PWD
+          - export GIT_SSL_NO_VERIFY=true
+          - git config --global --add safe.directory $WORK
+          - |
+            # ---- Flutter SDK（storage.flutter-io.cn 镜像）----
+            export FLUTTER_HOME=$HOME/flutter
+            if [ ! -d "$FLUTTER_HOME" ]; then
+              curl -sSL --retry 3 -o /tmp/flutter.tar.xz \
+                https://storage.flutter-io.cn/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.3-stable.tar.xz
+              tar -xJf /tmp/flutter.tar.xz -C $HOME
+              rm -f /tmp/flutter.tar.xz
+            fi
+            export PATH=$FLUTTER_HOME/bin:$PATH
+            flutter config --no-analytics
+          - |
+            # ---- Android SDK cmdline-tools（腾讯云镜像）----
+            export ANDROID_HOME=$HOME/android-sdk
+            export ANDROID_SDK_ROOT=$ANDROID_HOME
+            mkdir -p $ANDROID_HOME/cmdline-tools
+            if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
+              curl -sSL --retry 3 -o /tmp/cmdtools.zip \
+                https://mirrors.cloud.tencent.com/AndroidSDK/commandlinetools-linux-11076708_latest.zip
+              unzip -q /tmp/cmdtools.zip -d /tmp/cmdtools
+              mv /tmp/cmdtools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+              rm -rf /tmp/cmdtools /tmp/cmdtools.zip
+            fi
+            export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
+            yes | sdkmanager --licenses >/dev/null 2>&1 || true
+            sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          - |
+            # ---- 构建 ----
+            export PUB_HOSTED_URL=https://pub.flutter-io.cn
+            export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+            export GRADLE_USER_HOME=$HOME/.gradle
+            flutter pub get
+            flutter build apk --release --target-platform android-arm64
+            cp build/app/outputs/flutter-apk/app-release.apk shujing-v0.1.0.apk
+            ls -lh shujing-v0.1.0.apk
+          - |
+            # ---- 发布到 Gitee 发行版（国内直链下载）----
+            # GITEE_TOKEN 需在流水线「环境变量」中配置（私人令牌，勾选 projects 权限）
+            if [ -n "$GITEE_TOKEN" ]; then
+              python3 scripts/sync_gitee_release.py \
+                --owner youzhai22 --repo shujing --tag v0.1.0 \
+                --file shujing-v0.1.0.apk \
+                --title "书径 v0.1.0 —— Android 安装包" \
+                --notes-file RELEASE_NOTES.md --ref master
+            else
+              echo "未配置 GITEE_TOKEN，跳过发行版上传"
+            fi
+        caches:
+          - $HOME/flutter
+          - $HOME/android-sdk
+          - $HOME/.gradle
+          - $HOME/.pub-cache
+        artifacts:
+          - name: APK_ARTIFACT
+            path:
+              - ./shujing-v0.1.0.apk
+        timeout: '120'
