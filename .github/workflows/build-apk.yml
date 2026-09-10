@@ -33,7 +33,8 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
 
       - name: Build APK
-        run: flutter build apk --release
+        # 只打 arm64-v8a：省掉 armeabi-v7a / x86_64 两套原生库，体积大幅下降
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -59,5 +60,6 @@ jobs:
             **安装说明**：下载下面的 `shujing-v0.1.0.apk`，在手机上点击安装。
             首次安装需在系统设置中允许「未知来源应用」安装。
 
+            - 架构：**arm64-v8a 单架构**（2016 年后的绝大多数 Android 手机都是 arm64）
             - 构建环境：Flutter 3.47.3 (stable)
             - 产物来自 GitHub Actions 自动构建
