@@ -19,6 +19,18 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// 统一强制所有插件模块 compileSdk=36，规避 file_picker 等
+// 旧插件编译在 android-34 导致的 AAR metadata 校验失败
+subprojects {
+    afterEvaluate {
+        val android = extensions.findByName("android") ?: return@afterEvaluate
+        runCatching {
+            android.javaClass.getMethod("setCompileSdk", Int::class.java)
+                .invoke(android, 36)
+        }
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
