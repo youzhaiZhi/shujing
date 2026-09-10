@@ -53,6 +53,51 @@ class GlassContainer extends StatelessWidget {
   }
 }
 
+/// 普通软卡片（无模糊）：用于列表/设置等非悬浮层内容
+class SoftCard extends StatelessWidget {
+  final Widget child;
+  final BorderRadius? borderRadius;
+  final EdgeInsetsGeometry? padding;
+  final VoidCallback? onTap;
+
+  const SoftCard({
+    super.key,
+    required this.child,
+    this.borderRadius,
+    this.padding,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final radius = borderRadius ?? BorderRadius.circular(20);
+    final card = Container(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: radius,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: radius,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Padding(padding: padding ?? EdgeInsets.zero, child: child),
+        ),
+      ),
+    );
+    return card;
+  }
+}
+
 /// 悬浮毛玻璃底部导航（胶囊样式）
 class GlassNavBar extends StatelessWidget {
   final int index;

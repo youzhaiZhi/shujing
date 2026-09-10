@@ -187,7 +187,7 @@ class SourceService {
   static String _buildSearchUrl(BookSource source, String keyword, int page) {
     var su = source.searchUrl ?? '';
     if (su.isEmpty) return '';
-    // 去掉配置后缀（如 ",{...}" POST 配置），仅支持 GET
+    // 去掉配置后缀（如 ",{...}" POST/charset 配置），仅支持 GET
     final comma = su.indexOf(',{');
     if (comma > 0) su = su.substring(0, comma);
     final enc = Uri.encodeComponent(keyword);
@@ -198,6 +198,10 @@ class SourceService {
     if (su.contains('%{') || su.contains('<js>')) {
       // 复杂编码暂不支持，回退为直接替换
       su = su.replaceAll(RegExp(r'%\{[^}]*\}'), enc);
+    }
+    // 相对路径基于书源地址解析
+    if (su.isNotEmpty && !su.startsWith('http')) {
+      su = _abs(su, source.bookSourceUrl);
     }
     return su;
   }

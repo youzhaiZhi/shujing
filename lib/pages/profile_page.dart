@@ -17,7 +17,7 @@ class ProfilePage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
         children: [
-          GlassContainer(
+          SoftCard(
             borderRadius: BorderRadius.circular(24),
             padding: const EdgeInsets.all(24),
             child: Row(
@@ -47,7 +47,7 @@ class ProfilePage extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
           _SectionLabel('外观'),
-          GlassContainer(
+          SoftCard(
             borderRadius: BorderRadius.circular(20),
             child: Column(
               children: [
@@ -77,7 +77,7 @@ class ProfilePage extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           _SectionLabel('阅读'),
-          GlassContainer(
+          SoftCard(
             borderRadius: BorderRadius.circular(20),
             child: Column(
               children: [
@@ -101,7 +101,7 @@ class ProfilePage extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           _SectionLabel('AI 快读（即将上线）'),
-          GlassContainer(
+          SoftCard(
             borderRadius: BorderRadius.circular(20),
             child: Column(
               children: [
@@ -156,7 +156,7 @@ class ProfilePage extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           _SectionLabel('数据'),
-          GlassContainer(
+          SoftCard(
             borderRadius: BorderRadius.circular(20),
             child: Column(
               children: [

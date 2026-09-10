@@ -21,7 +21,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   int _selectedSource = -1; // -1 = 全部
   final Map<String, List<SearchBook>> _results = {};
   final Set<String> _loading = {};
-  final Set<String> _errors = {};
+  final Map<String, String> _errors = {};
   bool _searched = false;
 
   @override
@@ -64,13 +64,28 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     try {
       final results = await SourceService.search(s, kw);
       if (!mounted) return;
-      setState(() => _results[s.bookSourceUrl] = results);
+      setState(() {
+        _results[s.bookSourceUrl] = results;
+        _errors.remove(s.bookSourceUrl);
+        if (results.isEmpty) {
+          _errors[s.bookSourceUrl] = '无结果（该书源规则可能不支持）';
+        }
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errors.add(s.bookSourceUrl));
+      setState(() => _errors[s.bookSourceUrl] = _shortError(e));
     } finally {
       if (mounted) setState(() => _loading.remove(s.bookSourceUrl));
     }
+  }
+
+  String _shortError(Object e) {
+    final s = e.toString();
+    if (s.contains('ClientException') || s.contains('SocketException')) {
+      return '网络请求失败';
+    }
+    if (s.contains('TimeoutException')) return '请求超时';
+    return s.length > 40 ? '${s.substring(0, 40)}…' : s;
   }
 
   @override
@@ -79,7 +94,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 4,
-        title: GlassContainer(
+        title: SoftCard(
           borderRadius: BorderRadius.circular(22),
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
@@ -177,9 +192,16 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                       width: 14,
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2)),
-                if (_errors.contains(s.bookSourceUrl))
-                  Icon(Icons.error_outline_rounded,
-                      size: 14, color: Colors.red.shade300),
+                if (_errors.containsKey(s.bookSourceUrl))
+                  Expanded(
+                    child: Text(
+                      _errors[s.bookSourceUrl]!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.red.shade400),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -242,7 +264,7 @@ class _ResultTile extends StatelessWidget {
     final book = result.book;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: GlassContainer(
+      child: SoftCard(
         borderRadius: BorderRadius.circular(18),
         padding: const EdgeInsets.all(10),
         child: InkWell(

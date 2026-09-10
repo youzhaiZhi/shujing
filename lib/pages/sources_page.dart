@@ -56,7 +56,7 @@ class SourcesPage extends ConsumerWidget {
               final s = list[i];
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: GlassContainer(
+                child: SoftCard(
                   borderRadius: BorderRadius.circular(20),
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 6),

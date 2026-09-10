@@ -79,7 +79,7 @@ class _StatsState extends State<_Stats> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
           children: [
-            GlassContainer(
+            SoftCard(
               borderRadius: BorderRadius.circular(24),
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -145,7 +145,7 @@ class _StatsState extends State<_Stats> {
                         style: TextStyle(color: scheme.outline))),
               )
             else
-              GlassContainer(
+              SoftCard(
                 borderRadius: BorderRadius.circular(24),
                 padding: const EdgeInsets.symmetric(
                     horizontal: 20, vertical: 8),
@@ -165,7 +165,7 @@ class _StatsState extends State<_Stats> {
                 ),
               ),
             const SizedBox(height: 20),
-            GlassContainer(
+            SoftCard(
               borderRadius: BorderRadius.circular(24),
               padding: const EdgeInsets.all(20),
               child: Row(

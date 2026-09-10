@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -296,7 +295,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
               child: SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-                  child: GlassContainer(
+                  child: SoftCard(
                     borderRadius: BorderRadius.circular(20),
                     child: Row(
                       children: [
@@ -375,7 +374,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
               right: 16,
               bottom: 16,
               child: SafeArea(
-                child: GlassContainer(
+                child: SoftCard(
                   borderRadius: BorderRadius.circular(24),
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                   child: Column(
@@ -449,7 +448,7 @@ class _SettingsDrawer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
-    return GlassContainer(
+    return SoftCard(
       borderRadius: BorderRadius.circular(24),
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
       child: Column(
@@ -524,16 +523,14 @@ class _TocDrawer extends StatelessWidget {
         Positioned.fill(
           child: ClipRRect(
             borderRadius: const BorderRadius.horizontal(right: Radius.circular(24)),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: Container(
-                color: scheme.surface.withOpacity(0.92),
-                child: SafeArea(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 12, 8, 4),
+            child: Container(
+              color: scheme.surface,
+              child: SafeArea(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 8, 4),
                         child: Row(
                           children: [
                             Text('目录 (${chapters.length})',
@@ -576,7 +573,6 @@ class _TocDrawer extends StatelessWidget {
               ),
             ),
           ),
-        ),
       ],
     );
   }

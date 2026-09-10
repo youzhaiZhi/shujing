@@ -5,126 +5,156 @@ import 'package:html/parser.dart' as html_parser;
 
 import '../platform/js.dart' as js_platform;
 
-/// 阅读3.0 规则引擎（子集，覆盖绝大多数书源）
+/// 阅读3.0 规则引擎
 /// 支持：
-///   `//xpath`, `@@regex`, `$.json`, `@css:`, `text.`, `class.`, `id.`, `tag.`
-///   拼接规则 `{{}}`, `<js>` 与 `@js:` 脚本
-///   默认值 `##默认`, 过滤 `##正则##替换`
+///   `||` 回退多规则、`&&` 链式规则
+///   选择器：`//xpath`、`$.json`、`@css:`、`class.x`、`id.x`、`tag.x`、`text.x`（可带 `.N` 下标）
+///   `@` 属性/字段链：`class.x@tag.li`、`tag.a@text`、`tag.a@href`、`id.content@textNodes`
+///   拼接 `{{}}`、`##默认值`、`##正则##替换`、`<js>` / `@js:`
 class RuleEngine {
   static final dynamic _js =
       js_platform.jsSupported ? js_platform.createJsRuntime() : null;
 
-  /// 执行规则，返回字符串（第一个结果）
+  // ---------- 对外入口 ----------
+
+  /// 执行规则，返回第一个非空字符串
   static String optString(dynamic resp, String rule) {
-    final r = optList(resp, rule);
-    return r.isEmpty ? '' : r.first;
-  }
-
-  /// 执行规则，返回字符串列表
-  static List<String> optList(dynamic resp, String rule) {
-    if (rule.isEmpty) return [];
-    final results = <String>[];
-    for (final part in _splitRule(rule)) {
-      final v = _evalOne(resp, part);
-      results.addAll(v);
-    }
-    return results.where((e) => e.isNotEmpty).toList();
-  }
-
-  /// 执行规则，返回元素列表（用于 bookList/chapterList）
-  static List<dynamic> optElements(dynamic resp, String rule) {
-    if (rule.isEmpty) return [];
-    var current = <dynamic>[resp];
-    for (final part in _splitRule(rule)) {
-      final next = <dynamic>[];
-      for (final item in current) {
-        next.addAll(_evalElements(item, part));
+    for (final alt in _splitTop(rule, '||')) {
+      for (final v in _evalChain(resp, alt)) {
+        final s = _toText(v);
+        if (s.isNotEmpty) return s;
       }
-      current = next;
-    }
-    return current;
-  }
-
-  /// 拆分规则：按 || 或 && 分段（简化：支持 || 多规则回退）
-  static List<String> _splitRule(String rule) {
-    // 先处理 JS 段，避免被 || 切断
-    final parts = <String>[];
-    var buf = StringBuffer();
-    var depth = 0;
-    for (var i = 0; i < rule.length; i++) {
-      final c = rule[i];
-      if (c == '{') depth++;
-      if (c == '}') depth--;
-      if (depth == 0 &&
-          i + 1 < rule.length &&
-          rule[i] == '|' &&
-          rule[i + 1] == '|') {
-        parts.add(buf.toString());
-        buf = StringBuffer();
-        i++;
-        continue;
-      }
-      buf.write(c);
-    }
-    if (buf.isNotEmpty) parts.add(buf.toString());
-    return parts.where((p) => p.isNotEmpty).toList();
-  }
-
-  static List<String> _evalOne(dynamic resp, String rule) {
-    final els = _evalElements(resp, rule);
-    return els.map((e) => e is dom.Element ? _textOf(e) : e.toString()).toList();
-  }
-
-  static String _textOf(dom.Element e) {
-    final t = e.text.trim();
-    if (t.isNotEmpty) return t;
-    final attrs = ['content', 'href', 'src', 'data-url', 'value'];
-    for (final a in attrs) {
-      final v = e.attributes[a];
-      if (v != null && v.isNotEmpty) return v;
     }
     return '';
   }
 
-  static List<dynamic> _evalElements(dynamic resp, String rule) {
-    rule = rule.trim();
-    if (rule.isEmpty) return [resp];
-
-    // <js>...</js> 或 @js:
-    if (rule.startsWith('<js>') && rule.endsWith('</js>')) {
-      final out = _runJs(rule.substring(4, rule.length - 5), resp);
-      return out;
+  /// 执行规则，返回字符串列表
+  static List<String> optList(dynamic resp, String rule) {
+    for (final alt in _splitTop(rule, '||')) {
+      final out = <String>[];
+      for (final v in _evalChain(resp, alt)) {
+        final s = _toText(v);
+        if (s.isNotEmpty) out.add(s);
+      }
+      if (out.isNotEmpty) return out;
     }
-    if (rule.startsWith('@js:')) {
-      final out = _runJs(rule.substring(4), resp);
-      return out;
+    return [];
+  }
+
+  /// 执行规则，返回元素列表（用于 bookList / chapterList）
+  static List<dynamic> optElements(dynamic resp, String rule) {
+    for (final alt in _splitTop(rule, '||')) {
+      final r = _evalChain(resp, alt);
+      if (r.isNotEmpty) return r;
+    }
+    return [];
+  }
+
+  /// 解析响应体为文档 / JSON
+  static dynamic parseBody(String body, String contentType) {
+    if (contentType.contains('json')) {
+      try {
+        return jsonDecode(body);
+      } catch (_) {
+        return body;
+      }
+    }
+    final trimmed = body.trimLeft();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return jsonDecode(body);
+      } catch (_) {}
+    }
+    return html_parser.parse(body);
+  }
+
+  // ---------- 规则拆分 ----------
+
+  /// 按 sep 在顶层（不在 {{}}、[]、引号内）拆分
+  static List<String> _splitTop(String rule, String sep) {
+    final parts = <String>[];
+    final buf = StringBuffer();
+    var brace = 0, bracket = 0;
+    String? quote;
+    for (var i = 0; i < rule.length; i++) {
+      final c = rule[i];
+      if (quote != null) {
+        buf.write(c);
+        if (c == quote) quote = null;
+        continue;
+      }
+      if (c == '"' || c == "'") {
+        quote = c;
+        buf.write(c);
+        continue;
+      }
+      if (c == '{') brace++;
+      if (c == '}') brace--;
+      if (c == '[') bracket++;
+      if (c == ']') bracket--;
+      if (brace == 0 && bracket == 0 &&
+          i + sep.length <= rule.length &&
+          rule.substring(i, i + sep.length) == sep) {
+        parts.add(buf.toString());
+        buf.clear();
+        i += sep.length - 1;
+        continue;
+      }
+      buf.write(c);
+    }
+    parts.add(buf.toString());
+    return parts.where((p) => p.trim().isNotEmpty).toList();
+  }
+
+  /// 执行一条 `&&` 链
+  static List<dynamic> _evalChain(dynamic resp, String chain) {
+    var current = <dynamic>[resp];
+    for (final step in _splitTop(chain, '&&')) {
+      final next = <dynamic>[];
+      for (final item in current) {
+        next.addAll(_evalStep(item, step.trim()));
+      }
+      current = next;
+      if (current.isEmpty) return [];
+    }
+    return current;
+  }
+
+  // ---------- 单步求值 ----------
+
+  static List<dynamic> _evalStep(dynamic resp, String step) {
+    if (step.isEmpty) return [resp];
+
+    // JS
+    if (step.startsWith('<js>') && step.endsWith('</js>')) {
+      return _runJs(step.substring(4, step.length - 5), resp);
+    }
+    if (step.startsWith('@js:')) {
+      return _runJs(step.substring(4), resp);
     }
 
-    // 默认值/替换： xxx##default 或 xxx##regex##replace
+    // ## 默认值 / 正则替换
     var defaultVal = '';
     var replaceRegex = '';
     var replaceTo = '';
-    final dd = _splitDoubleHash(rule);
+    final dd = _splitDoubleHash(step);
     if (dd != null) {
-      rule = dd.$1;
-      if (dd.$2.isNotEmpty) {
-        final rr = _splitDoubleHash(dd.$2);
-        if (rr != null) {
-          replaceRegex = rr.$1;
-          replaceTo = rr.$2;
-        } else {
-          defaultVal = dd.$2;
-        }
+      step = dd.$1;
+      final rest = dd.$2;
+      final rr = _splitDoubleHash(rest);
+      if (rr != null) {
+        replaceRegex = rr.$1;
+        replaceTo = rr.$2;
+      } else {
+        defaultVal = rest;
       }
     }
 
-    var results = _applyRule(resp, rule);
+    var results = _evalSelectorChain(resp, step);
 
     if (replaceRegex.isNotEmpty) {
       results = results
-          .map((e) => e is dom.Element
-              ? _textOf(e).replaceAll(RegExp(replaceRegex), replaceTo)
-              : e.toString().replaceAll(RegExp(replaceRegex), replaceTo))
+          .map((e) => _toText(e).replaceAll(RegExp(replaceRegex), replaceTo))
           .toList();
     }
     if (results.isEmpty && defaultVal.isNotEmpty) {
@@ -135,94 +165,258 @@ class RuleEngine {
 
   static (String, String)? _splitDoubleHash(String s) {
     final i = s.indexOf('##');
-    if (i < 0) return null;
-    // 不处理规则开头的 ##
-    if (i == 0) return null;
+    if (i <= 0) return null;
     return (s.substring(0, i), s.substring(i + 2));
   }
 
-  static List<dynamic> _applyRule(dynamic resp, String rule) {
-    // 拼接 {{}}
-    if (rule.contains('{{')) {
-      return [_interpolate(resp, rule)];
+  /// `selector@attr@attr...`（`@` 仅在作为链式分隔符时拆分：
+  /// 不在引号/括号内、不在开头、不紧跟 `/`（xpath 的 /@attr））
+  static List<dynamic> _evalSelectorChain(dynamic resp, String step) {
+    final segs = _splitAt(step);
+    var current = <dynamic>[resp];
+    for (var i = 0; i < segs.length; i++) {
+      final seg = segs[i];
+      final next = <dynamic>[];
+      for (final item in current) {
+        if (i == 0) {
+          next.addAll(_resolveSelector(item, seg));
+        } else {
+          next.addAll(_applySegment(item, seg));
+        }
+      }
+      current = next;
+      if (current.isEmpty) return [];
     }
-    // 纯字符串字面量
-    if (resp is! dom.Document &&
-        resp is! dom.Element &&
-        !rule.startsWith('@') &&
-        !rule.startsWith(r'$') &&
-        !rule.startsWith('//') &&
-        !rule.contains('.')) {
-      return [rule];
+    return current;
+  }
+
+  static List<String> _splitAt(String step) {
+    final parts = <String>[];
+    final buf = StringBuffer();
+    var brace = 0, bracket = 0;
+    String? quote;
+    for (var i = 0; i < step.length; i++) {
+      final c = step[i];
+      if (quote != null) {
+        buf.write(c);
+        if (c == quote) quote = null;
+        continue;
+      }
+      if (c == '"' || c == "'") {
+        quote = c;
+        buf.write(c);
+        continue;
+      }
+      if (c == '{') brace++;
+      if (c == '}') brace--;
+      if (c == '[') bracket++;
+      if (c == ']') bracket--;
+      if (c == '@' &&
+          brace == 0 &&
+          bracket == 0 &&
+          i > 0 &&
+          step[i - 1] != '/') {
+        parts.add(buf.toString());
+        buf.clear();
+        continue;
+      }
+      buf.write(c);
+    }
+    parts.add(buf.toString());
+    return parts;
+  }
+
+  // ---------- 选择器 ----------
+
+  static List<dynamic> _resolveSelector(dynamic resp, String sel) {
+    sel = sel.trim();
+    if (sel.isEmpty) return [resp];
+
+    // {{拼接}}
+    if (sel.contains('{{')) {
+      return [_interpolate(resp, sel)];
     }
 
-    if (rule.startsWith('//')) {
-      return _xpath(resp, rule);
+    if (sel.startsWith('@css:')) {
+      return _css(resp, sel.substring(5));
     }
-    if (rule.startsWith(r'$')) {
-      return _jsonPath(resp, rule);
-    }
-    if (rule.startsWith('@css:')) {
-      return _css(resp, rule.substring(5));
-    }
-    if (rule.startsWith(r'$.') || rule.startsWith(r'$[')) {
-      return _jsonPath(resp, rule);
-    }
-    // text. / class. / id. / tag.
-    if (rule.startsWith('text.')) {
-      return _css(resp, rule.substring(5));
-    }
-    if (rule.startsWith('class.')) {
-      return _css(resp, '.${rule.substring(6)}');
-    }
-    if (rule.startsWith('id.')) {
-      return _css(resp, '#${rule.substring(3)}');
-    }
-    if (rule.startsWith('tag.')) {
-      return _css(resp, rule.substring(4));
-    }
-    // @regex: 对 resp 文本做正则
-    if (rule.startsWith('@regex:')) {
-      final text = resp is String ? resp : (resp is dom.Node ? (resp.text ?? '') : '');
-      final m = RegExp(rule.substring(7)).firstMatch(text);
+    if (sel.startsWith('@regex:')) {
+      final text = _toText(resp);
+      final m = RegExp(sel.substring(7)).firstMatch(text);
       if (m == null) return [];
-      if (m.groupCount >= 1) return [m.group(1) ?? ''];
-      return [m.group(0) ?? ''];
+      return [m.groupCount >= 1 ? (m.group(1) ?? '') : (m.group(0) ?? '')];
+    }
+    if (sel.startsWith('//')) return _xpath(resp, sel);
+    if (sel.startsWith(r'$')) return _jsonPath(resp, sel);
+
+    // class.x / id.x / tag.x / text.x（支持 .N 下标）
+    final m = RegExp(r'^(class|id|tag|text)\.(.+?)(?:\.(\d+))?$').firstMatch(sel);
+    if (m != null) {
+      final kind = m.group(1)!;
+      final arg = m.group(2)!;
+      final idx = m.group(3) != null ? int.parse(m.group(3)!) : null;
+      List<dynamic> els;
+      switch (kind) {
+        case 'class':
+          els = _css(resp, '.${_cssEscape(arg)}');
+        case 'id':
+          els = _css(resp, '#${_cssEscape(arg)}');
+        case 'tag':
+          els = _css(resp, arg);
+        default: // text.
+          els = _containsText(resp, arg);
+      }
+      if (idx != null) {
+        return idx < els.length ? [els[idx]] : [];
+      }
+      return els;
+    }
+
+    // 裸键名：resp 是 Map/List 时按 JSON 字段取
+    if (resp is Map || resp is List) {
+      return _jsonPath(resp, '\$.$sel');
+    }
+    if (resp is String) {
+      // 字符串响应：尝试 JSON 字段，否则原样返回
+      try {
+        final j = jsonDecode(resp);
+        if (j is Map || j is List) return _jsonPath(j, '\$.$sel');
+      } catch (_) {}
+      return [resp];
+    }
+    // 元素上的裸段：属性关键字走属性，否则取文本
+    if (resp is dom.Element) {
+      if (_attrKeys.contains(sel)) return _applySegment(resp, sel);
+      final t = resp.text.trim();
+      return t.isEmpty ? [] : [t];
     }
     return [];
   }
 
+  static const _attrKeys = {
+    'text', 'textNodes', 'html', 'innerHtml', 'outerHtml', 'tag',
+    'class', 'className', 'id', 'href', 'src', 'content', 'value',
+  };
+
+  static String _cssEscape(String s) =>
+      s.replaceAll(RegExp(r'([^\w-])'), r'\1');
+
+  static List<dynamic> _containsText(dynamic resp, String text) {
+    final root = resp is dom.Document
+        ? resp.body
+        : resp is dom.Element
+            ? resp
+            : null;
+    if (root == null) return [];
+    return root
+        .querySelectorAll('*')
+        .where((e) => e.children.isEmpty && e.text.contains(text))
+        .toList();
+  }
+
+  /// `@` 之后的段：属性 / 子选择器 / JSON 键
+  static List<dynamic> _applySegment(dynamic el, String seg) {
+    seg = seg.trim();
+    if (seg.isEmpty) return [el];
+
+    if (el is dom.Element) {
+      switch (seg) {
+        case 'text':
+          final t = el.text.trim();
+          return t.isEmpty ? [] : [t];
+        case 'textNodes':
+          return [
+            el.nodes
+                .whereType<dom.Text>()
+                .map((t) => t.text.trim())
+                .where((t) => t.isNotEmpty)
+                .join('\n')
+          ];
+        case 'html':
+          return [el.innerHtml];
+        case 'tag':
+          return [el.localName ?? ''];
+        case 'class':
+          return [el.className];
+        case 'id':
+          return [el.id];
+        case 'href':
+        case 'src':
+        case 'content':
+        case 'value':
+          return [el.attributes[seg] ?? ''];
+      }
+      // 子选择器
+      if (seg.startsWith('//') ||
+          seg.startsWith(r'$') ||
+          seg.startsWith('@css:') ||
+          RegExp(r'^(class|id|tag|text)\.').hasMatch(seg)) {
+        return _resolveSelector(el, seg);
+      }
+      return [];
+    }
+
+    if (el is Map) {
+      final v = el[seg];
+      if (v == null) return [];
+      return v is List ? v : [v];
+    }
+    if (el is List) {
+      if (seg == '*') return el;
+      final i = int.tryParse(seg);
+      if (i != null && i >= 0 && i < el.length) return [el[i]];
+      // 列表元素各自取键
+      final out = <dynamic>[];
+      for (final e in el) {
+        out.addAll(_applySegment(e, seg));
+      }
+      return out;
+    }
+    if (el is String) {
+      try {
+        final j = jsonDecode(el);
+        if (j is Map || j is List) return _applySegment(j, seg);
+      } catch (_) {}
+      return [el];
+    }
+    if (el is num || el is bool) {
+      final s = el.toString();
+      return s.isEmpty ? [] : [s];
+    }
+    return [];
+  }
+
+  // ---------- xpath 子集 ----------
+
   static List<dynamic> _xpath(dynamic resp, String path) {
-    dom.Document? doc;
     dom.Element? root;
     if (resp is dom.Document) {
-      doc = resp;
+      root = resp.body;
     } else if (resp is dom.Element) {
       root = resp;
     } else if (resp is String) {
-      doc = html_parser.parse(resp);
-    } else {
-      return [];
+      root = html_parser.parse(resp).body;
     }
-    // 简化 xpath：支持 //tag, //tag[@attr='v'], //tag/class, //text(), //@attr
-    final body = doc != null ? doc.body : root;
-    if (body == null) return [];
-    if (path == '//text()') return [body.text.trim()];
+    if (root == null) return [];
+    if (path == '//text()') return [root.text.trim()];
     final sel = path.replaceFirst('//', '');
-    return _simpleXPath(body, sel);
-  }
-
-  static List<dynamic> _simpleXPath(dom.Element root, String sel) {
     final parts = sel.split('/').where((p) => p.isNotEmpty).toList();
-    var nodes = <dom.Element>[root];
-    for (var i = 0; i < parts.length; i++) {
-      final p = parts[i];
-      if (p == 'text()') {
-        return nodes.map((e) => e.text.trim()).toList();
-      }
-      final next = <dom.Element>[];
+    var nodes = <dynamic>[root];
+    for (final p in parts) {
+      final next = <dynamic>[];
       for (final n in nodes) {
-        next.addAll(_matchStep(n, p));
+        if (n is! dom.Element) continue;
+        if (p == 'text()') {
+          next.addAll(n.nodes
+              .whereType<dom.Text>()
+              .map((t) => t.text.trim())
+              .where((t) => t.isNotEmpty));
+        } else if (p.startsWith('@')) {
+          final v = n.attributes[p.substring(1)];
+          if (v != null && v.isNotEmpty) next.add(v);
+        } else {
+          next.addAll(_matchStep(n, p));
+        }
       }
       nodes = next;
       if (nodes.isEmpty) return [];
@@ -231,20 +425,16 @@ class RuleEngine {
   }
 
   static List<dom.Element> _matchStep(dom.Element parent, String step) {
-    // step: tag | tag[@attr='v'] | tag[n] | *
-    final m = RegExp(r'''^([^\[]+)(?:\[@([^\]=]+)=["']([^"']*)["']\])?(?:\[(\d+)\])?''')
+    final m = RegExp(
+            r'''^([^\[]+)(?:\[@([^\]=]+)=["']([^"']*)["']\])?(?:\[(\d+)\])?''')
         .firstMatch(step);
     if (m == null) return [];
     final tag = m.group(1)!;
     final attr = m.group(2);
     final val = m.group(3);
     final index = m.group(4);
-    var candidates = <dom.Element>[];
-    if (tag == '*') {
-      candidates = parent.children;
-    } else {
-      candidates = parent.querySelectorAll(tag);
-    }
+    var candidates =
+        tag == '*' ? parent.children : parent.querySelectorAll(tag);
     if (attr != null) {
       candidates = candidates.where((e) => e.attributes[attr] == val).toList();
     }
@@ -255,6 +445,8 @@ class RuleEngine {
     }
     return candidates;
   }
+
+  // ---------- css / json ----------
 
   static List<dynamic> _css(dynamic resp, String selector) {
     if (resp is dom.Document) return resp.querySelectorAll(selector);
@@ -279,7 +471,6 @@ class RuleEngine {
     } else {
       data = resp;
     }
-    // 支持 a.b[0].c 和 a.b[*].c
     final tokens = path
         .replaceFirst(r'$', '')
         .replaceAll(RegExp(r'\[(\d+)\]'), '.\$1')
@@ -302,19 +493,18 @@ class RuleEngine {
       }
       cur = next;
     }
-    return cur.map((e) => e is String ? e : jsonEncode(e)).toList();
+    return cur;
   }
 
+  // ---------- 其他 ----------
+
   static String _interpolate(dynamic resp, String rule) {
-    // {{a}}{{b}} 拼接，每段递归求值
     final re = RegExp(r'\{\{(.*?)\}\}');
     var result = '';
     var last = 0;
     for (final m in re.allMatches(rule)) {
       result += rule.substring(last, m.start);
-      final inner = m.group(1)!;
-      final v = optString(resp, inner);
-      result += v;
+      result += optString(resp, m.group(1)!);
       last = m.end;
     }
     result += rule.substring(last);
@@ -324,10 +514,18 @@ class RuleEngine {
   static List<dynamic> _runJs(String script, dynamic resp) {
     if (_js == null) return [];
     try {
+      final resultStr = resp is String
+          ? resp
+          : resp is dom.Element
+              ? resp.innerHtml
+              : resp is dom.Document
+                  ? resp.body?.innerHtml ?? ''
+                  : jsonEncode(resp);
       final jsResp = _js.evaluate('''
+        var result = ${jsonEncode(resultStr)};
         (function(){
-          var result = $script;
-          return typeof result === 'string' ? result : JSON.stringify(result);
+          var r = $script;
+          return typeof r === 'string' ? r : JSON.stringify(r);
         })()
       ''');
       final out = jsResp.stringResult;
@@ -338,15 +536,19 @@ class RuleEngine {
     }
   }
 
-  /// 解析响应体为文档
-  static dynamic parseBody(String body, String contentType) {
-    if (contentType.contains('json')) {
-      try {
-        return jsonDecode(body);
-      } catch (_) {
-        return body;
+  static String _toText(dynamic v) {
+    if (v is String) return v.trim();
+    if (v is dom.Element) {
+      final t = v.text.trim();
+      if (t.isNotEmpty) return t;
+      for (final a in ['content', 'href', 'src', 'data-url', 'value']) {
+        final av = v.attributes[a];
+        if (av != null && av.isNotEmpty) return av;
       }
+      return '';
     }
-    return html_parser.parse(body);
+    if (v is num || v is bool) return v.toString();
+    if (v is Map || v is List) return jsonEncode(v);
+    return '';
   }
 }
