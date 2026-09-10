@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+# 发布 Release 需要写权限
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -36,3 +40,24 @@ jobs:
         with:
           name: shujing-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Rename APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk shujing-v0.1.0.apk
+
+      # 发布为 Release 资源，得到一个无需登录、手机可直接点开的公开下载链接
+      - name: Publish to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0
+          name: 书径 v0.1.0 —— Android 安装包
+          files: shujing-v0.1.0.apk
+          body: |
+            ## 书径 v0.1.0 (Android)
+
+            简约毛玻璃风格的本地阅读器，兼容阅读 3.0 书源。
+
+            **安装说明**：下载下面的 `shujing-v0.1.0.apk`，在手机上点击安装。
+            首次安装需在系统设置中允许「未知来源应用」安装。
+
+            - 构建环境：Flutter 3.47.3 (stable)
+            - 产物来自 GitHub Actions 自动构建
