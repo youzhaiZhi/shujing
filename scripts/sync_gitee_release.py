@@ -20,6 +20,7 @@ import mimetypes
 import os
 import secrets
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -27,7 +28,7 @@ import urllib.request
 API = "https://gitee.com/api/v5"
 
 
-def request(method, path, token, fields=None, upload=None, timeout=300):
+def request(method, path, token, fields=None, upload=None, timeout=1800):
     """调用 Gitee OpenAPI。
 
     access_token 一律走 query string（Gitee 对 GET/POST 都接受），
@@ -164,6 +165,7 @@ def main():
     parser.add_argument("--notes", default="")
     parser.add_argument("--notes-file", default="")
     parser.add_argument("--ref", default="master", help="创建 tag 所指向的分支")
+    parser.add_argument("--retries", type=int, default=3, help="上传失败重试次数")
     args = parser.parse_args()
 
     token = os.environ.get("GITEE_TOKEN", "").strip()
@@ -183,19 +185,38 @@ def main():
 
     ensure_tag(token, args.owner, args.repo, args.tag, args.ref)
     release_id = ensure_release(token, args.owner, args.repo, args.tag, args.title, notes, args.ref)
-    remove_same_name_assets(token, args.owner, args.repo, release_id, filename)
 
     print(f"[upload] {filename} ({size_mb:.1f} MB)")
     with open(args.file, "rb") as handle:
         payload = handle.read()
-    uploaded = as_dict(
-        request(
-            "POST",
-            f"/repos/{args.owner}/{args.repo}/releases/{release_id}/attach_files",
-            token,
-            upload={"file": (filename, payload)},
-        )
-    )
+
+    # 境外 runner 上传到 Gitee 可能很慢，单次写超时或中途断链都属常见，
+    # 因此重试若干次；每次重试前都清一遍同名附件，避免残留半截文件。
+    uploaded = None
+    last_error = None
+    for attempt in range(1, args.retries + 1):
+        remove_same_name_assets(token, args.owner, args.repo, release_id, filename)
+        started = time.time()
+        try:
+            uploaded = as_dict(
+                request(
+                    "POST",
+                    f"/repos/{args.owner}/{args.repo}/releases/{release_id}/attach_files",
+                    token,
+                    upload={"file": (filename, payload)},
+                )
+            )
+            elapsed = time.time() - started
+            print(f"[upload] 第 {attempt} 次成功，耗时 {elapsed:.0f}s（{size_mb / max(elapsed, 0.1):.0f} KB/s 量级）")
+            break
+        except RuntimeError as exc:
+            last_error = exc
+            print(f"[warn] 第 {attempt} 次上传失败：{exc}")
+            if attempt < args.retries:
+                time.sleep(10 * attempt)
+
+    if uploaded is None:
+        sys.exit(f"上传失败，已重试 {args.retries} 次：{last_error}")
 
     url = uploaded.get("browser_download_url") or (
         f"https://gitee.com/{args.owner}/{args.repo}/releases/download/{args.tag}/{filename}"
