@@ -52,14 +52,19 @@ jobs:
           tag_name: v0.1.0
           name: 书径 v0.1.0 —— Android 安装包
           files: shujing-v0.1.0.apk
-          body: |
-            ## 书径 v0.1.0 (Android)
+          body_path: RELEASE_NOTES.md
 
-            简约毛玻璃风格的本地阅读器，兼容阅读 3.0 书源。
-
-            **安装说明**：下载下面的 `shujing-v0.1.0.apk`，在手机上点击安装。
-            首次安装需在系统设置中允许「未知来源应用」安装。
-
-            - 架构：**arm64-v8a 单架构**（2016 年后的绝大多数 Android 手机都是 arm64）
-            - 构建环境：Flutter 3.47.3 (stable)
-            - 产物来自 GitHub Actions 自动构建
+      # 同步一份到 Gitee：国内直连下载，绕开 GitHub 的跨境链路
+      # 上传前会先删除同名旧附件，因为 Gitee 不覆盖只累积
+      - name: Sync to Gitee Release
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          python3 scripts/sync_gitee_release.py \
+            --owner youzhai22 \
+            --repo shujing \
+            --tag v0.1.0 \
+            --file shujing-v0.1.0.apk \
+            --title "书径 v0.1.0 —— Android 安装包" \
+            --notes-file RELEASE_NOTES.md \
+            --ref master
