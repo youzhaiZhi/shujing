@@ -1,28 +1,116 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 
+import '../data/models.dart';
 import '../source/http_client.dart';
 import '../state/providers.dart';
 import '../widgets/glass.dart';
 
-class SourcesPage extends ConsumerWidget {
+class SourcesPage extends ConsumerStatefulWidget {
   const SourcesPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SourcesPage> createState() => _SourcesPageState();
+}
+
+class _SourcesPageState extends ConsumerState<SourcesPage> {
+  bool _selectMode = false;
+  final Set<int> _selected = {};
+
+  void _exitSelect() {
+    setState(() {
+      _selectMode = false;
+      _selected.clear();
+    });
+  }
+
+  void _toggleSelect(int? id) {
+    if (id == null) return;
+    setState(() => _selected.contains(id)
+        ? _selected.remove(id)
+        : _selected.add(id));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final sources = ref.watch(sourcesProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('书源'),
+        title: Text(_selectMode ? '已选 ${_selected.length} 个' : '书源'),
+        leading: _selectMode
+            ? IconButton(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: _exitSelect)
+            : null,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            tooltip: '导入书源',
-            onPressed: () => _showImportMenu(context, ref),
-          ),
+          if (_selectMode) ...[
+            IconButton(
+              icon: const Icon(Icons.select_all_rounded),
+              tooltip: '全选',
+              onPressed: () {
+                final list = sources.value ?? [];
+                setState(() {
+                  if (_selected.length == list.length) {
+                    _selected.clear();
+                  } else {
+                    _selected.addAll(
+                        list.where((s) => s.id != null).map((s) => s.id!));
+                  }
+                });
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.check_circle_outline_rounded),
+              tooltip: '批量启用',
+              onPressed: _selected.isEmpty
+                  ? null
+                  : () {
+                      ref
+                          .read(sourcesProvider.notifier)
+                          .setEnabledBatch(_selected.toList(), true);
+                      _exitSelect();
+                    },
+            ),
+            IconButton(
+              icon: const Icon(Icons.cancel_outlined),
+              tooltip: '批量禁用',
+              onPressed: _selected.isEmpty
+                  ? null
+                  : () {
+                      ref
+                          .read(sourcesProvider.notifier)
+                          .setEnabledBatch(_selected.toList(), false);
+                      _exitSelect();
+                    },
+            ),
+            IconButton(
+              icon: const Icon(Icons.upload_file_rounded),
+              tooltip: '导出所选',
+              onPressed: _selected.isEmpty ? null : () => _exportSelected(sources.value ?? []),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded,
+                  color: Colors.red),
+              tooltip: '批量删除',
+              onPressed:
+                  _selected.isEmpty ? null : () => _confirmBatchDelete(),
+            ),
+          ] else ...[
+            IconButton(
+              icon: const Icon(Icons.done_all_rounded),
+              tooltip: '批量管理',
+              onPressed: () => setState(() => _selectMode = true),
+            ),
+            IconButton(
+              icon: const Icon(Icons.add_rounded),
+              tooltip: '导入书源',
+              onPressed: () => _showImportMenu(context, ref),
+            ),
+          ],
           const SizedBox(width: 4),
         ],
       ),
@@ -54,6 +142,7 @@ class SourcesPage extends ConsumerWidget {
             itemCount: list.length,
             itemBuilder: (context, i) {
               final s = list[i];
+              final checked = _selected.contains(s.id);
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: SoftCard(
@@ -62,7 +151,9 @@ class SourcesPage extends ConsumerWidget {
                       horizontal: 16, vertical: 6),
                   child: Dismissible(
                     key: ValueKey(s.id),
-                    direction: DismissDirection.endToStart,
+                    direction: _selectMode
+                        ? DismissDirection.none
+                        : DismissDirection.endToStart,
                     background: Container(
                       alignment: Alignment.centerRight,
                       padding: const EdgeInsets.only(right: 20),
@@ -77,6 +168,30 @@ class SourcesPage extends ConsumerWidget {
                         ref.read(sourcesProvider.notifier).delete(s.id!),
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
+                      leading: _selectMode
+                          ? Icon(
+                              checked
+                                  ? Icons.check_circle_rounded
+                                  : Icons.radio_button_unchecked_rounded,
+                              color: checked
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .outline
+                                      .withOpacity(0.5),
+                            )
+                          : null,
+                      onTap: _selectMode
+                          ? () => _toggleSelect(s.id)
+                          : null,
+                      onLongPress: _selectMode
+                          ? null
+                          : () {
+                              setState(() {
+                                _selectMode = true;
+                                _toggleSelect(s.id);
+                              });
+                            },
                       title: Text(s.bookSourceName,
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: Text(
@@ -92,9 +207,11 @@ class SourcesPage extends ConsumerWidget {
                                   .withOpacity(0.45))),
                       trailing: Switch(
                         value: s.isEnabled,
-                        onChanged: (v) => ref
-                            .read(sourcesProvider.notifier)
-                            .setEnabled(s.id!, v),
+                        onChanged: _selectMode
+                            ? null
+                            : (v) => ref
+                                .read(sourcesProvider.notifier)
+                                .setEnabled(s.id!, v),
                       ),
                     ),
                   ),
@@ -103,6 +220,43 @@ class SourcesPage extends ConsumerWidget {
             },
           );
         },
+      ),
+    );
+  }
+
+  void _exportSelected(List<BookSource> all) {
+    final picked =
+        all.where((s) => _selected.contains(s.id)).toList();
+    if (picked.isEmpty) return;
+    final json = '[${picked.map((s) => s.raw).join(',')}]';
+    Clipboard.setData(ClipboardData(text: json));
+    _toast(context, '已复制 ${picked.length} 个书源到剪贴板');
+    _exitSelect();
+  }
+
+  void _confirmBatchDelete() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('批量删除'),
+        content: Text('确定删除选中的 ${_selected.length} 个书源？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref
+                  .read(sourcesProvider.notifier)
+                  .deleteBatch(_selected.toList());
+              _exitSelect();
+            },
+            child: const Text('删除'),
+          ),
+        ],
       ),
     );
   }

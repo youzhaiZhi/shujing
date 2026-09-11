@@ -42,16 +42,21 @@ jobs:
           name: shujing-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
 
+      # 从 pubspec.yaml 读取版本号（如 0.1.2+3 -> 0.1.2）
+      - name: Read version
+        id: ver
+        run: echo "v=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Rename APK
-        run: cp build/app/outputs/flutter-apk/app-release.apk shujing-v0.1.1.apk
+        run: cp build/app/outputs/flutter-apk/app-release.apk shujing-v${{ steps.ver.outputs.v }}.apk
 
       # 发布为 Release 资源，得到一个无需登录、手机可直接点开的公开下载链接
       - name: Publish to Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.1
-          name: 书径 v0.1.1 —— Android 安装包
-          files: shujing-v0.1.1.apk
+          tag_name: v${{ steps.ver.outputs.v }}
+          name: 书径 v${{ steps.ver.outputs.v }} —— Android 安装包
+          files: shujing-v${{ steps.ver.outputs.v }}.apk
           body_path: RELEASE_NOTES.md
 
       # 同步一份到 Gitee：国内直连下载，绕开 GitHub 的跨境链路
@@ -63,8 +68,8 @@ jobs:
           python3 scripts/sync_gitee_release.py \
             --owner youzhai22 \
             --repo shujing \
-            --tag v0.1.1 \
-            --file shujing-v0.1.1.apk \
-            --title "书径 v0.1.1 —— Android 安装包" \
+            --tag v${{ steps.ver.outputs.v }} \
+            --file shujing-v${{ steps.ver.outputs.v }}.apk \
+            --title "书径 v${{ steps.ver.outputs.v }} —— Android 安装包" \
             --notes-file RELEASE_NOTES.md \
             --ref master

@@ -61,16 +61,18 @@ stages:
             export GRADLE_USER_HOME=$HOME/.gradle
             flutter pub get
             flutter build apk --release --target-platform android-arm64
-            cp build/app/outputs/flutter-apk/app-release.apk shujing-v0.1.0.apk
-            ls -lh shujing-v0.1.0.apk
+            V=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)
+            cp build/app/outputs/flutter-apk/app-release.apk shujing-v$V.apk
+            ls -lh shujing-v$V.apk
           - |
             # ---- 发布到 Gitee 发行版（国内直链下载）----
             # GITEE_TOKEN 需在流水线「环境变量」中配置（私人令牌，勾选 projects 权限）
+            V=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)
             if [ -n "$GITEE_TOKEN" ]; then
               python3 scripts/sync_gitee_release.py \
-                --owner youzhai22 --repo shujing --tag v0.1.0 \
-                --file shujing-v0.1.0.apk \
-                --title "书径 v0.1.0 —— Android 安装包" \
+                --owner youzhai22 --repo shujing --tag v$V \
+                --file shujing-v$V.apk \
+                --title "书径 v$V —— Android 安装包" \
                 --notes-file RELEASE_NOTES.md --ref master
             else
               echo "未配置 GITEE_TOKEN，跳过发行版上传"
@@ -83,5 +85,5 @@ stages:
         artifacts:
           - name: APK_ARTIFACT
             path:
-              - ./shujing-v0.1.0.apk
+              - ./shujing-v*.apk
         timeout: '120'

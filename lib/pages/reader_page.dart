@@ -6,6 +6,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 
 import '../data/db.dart';
 import '../data/models.dart';
+import '../source/replacer.dart';
 import '../source/source_service.dart';
 import '../state/providers.dart';
 import '../widgets/glass.dart';
@@ -42,6 +43,10 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
   final FlutterTts _tts = FlutterTts();
   bool _ttsPlaying = false;
   bool _ttsPanel = false;
+
+  /// 应用净化规则后的正文（不污染缓存，改规则即时生效）
+  String? get _cleanBody =>
+      _body == null ? null : Replacer.instance.clean(_body!);
 
   @override
   void initState() {
@@ -166,12 +171,13 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
       await _stopTts();
       return;
     }
-    if (_body == null || _body!.isEmpty) return;
+    final clean = _cleanBody;
+    if (clean == null || clean.isEmpty) return;
     setState(() => _ttsPlaying = true);
     final s = ref.read(settingsProvider);
     await _tts.setSpeechRate((s.ttsRate * 0.5).clamp(0.1, 1.0));
     await _tts.setPitch(s.ttsPitch);
-    await _tts.speak(_body!);
+    await _tts.speak(clean);
   }
 
   Future<void> _stopTts() async {
@@ -189,7 +195,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
     if (_ttsPlaying && mounted) {
       final s = ref.read(settingsProvider);
       await _tts.setSpeechRate((s.ttsRate * 0.5).clamp(0.1, 1.0));
-      await _tts.speak(_body ?? '');
+      await _tts.speak(_cleanBody ?? '');
     }
   }
 
@@ -206,6 +212,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
+    ref.watch(replaceRulesProvider); // 确保净化规则已加载
     final bg = readerBgs[settings.readerBg];
     final dark = settings.readerBg == 4;
     final textColor = dark ? const Color(0xFFB8BDB8) : const Color(0xFF2A2C2A);
@@ -254,7 +261,7 @@ class _ReaderPageState extends ConsumerState<ReaderPage>
                                   strokeWidth: 2.5))),
                     )
                   else if (_body != null)
-                    Text(_body!,
+                    Text(_cleanBody!,
                         style: TextStyle(
                             fontSize: settings.fontSize,
                             height: settings.lineHeight,

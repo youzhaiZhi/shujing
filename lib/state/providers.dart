@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/db.dart';
 import '../data/models.dart';
+import '../source/replacer.dart';
 
 // ---------- 数据库 ----------
 final dbProvider = Provider<AppDb>((_) => AppDb.instance);
@@ -59,10 +60,78 @@ class SourcesNotifier extends AsyncNotifier<List<BookSource>> {
     await AppDb.instance.deleteSource(id);
     await refresh();
   }
+
+  Future<void> deleteBatch(List<int> ids) async {
+    await AppDb.instance.deleteSources(ids);
+    await refresh();
+  }
+
+  Future<void> setEnabledBatch(List<int> ids, bool enabled) async {
+    await AppDb.instance.setSourcesEnabled(ids, enabled);
+    await refresh();
+  }
 }
 
 final sourcesProvider =
     AsyncNotifierProvider<SourcesNotifier, List<BookSource>>(SourcesNotifier.new);
+
+// ---------- 净化规则 ----------
+class ReplaceRulesNotifier extends AsyncNotifier<List<ReplaceRule>> {
+  @override
+  Future<List<ReplaceRule>> build() async {
+    final rules = await AppDb.instance.replaceRules();
+    Replacer.instance.update(rules);
+    return rules;
+  }
+
+  Future<void> refresh() async {
+    final rules = await AppDb.instance.replaceRules();
+    Replacer.instance.update(rules);
+    state = AsyncValue.data(rules);
+  }
+
+  Future<void> add(ReplaceRule r) async {
+    await AppDb.instance.insertReplaceRule(r);
+    await refresh();
+  }
+
+  Future<void> saveRule(ReplaceRule r) async {
+    await AppDb.instance.updateReplaceRule(r);
+    await refresh();
+  }
+
+  Future<void> setEnabled(int id, bool enabled) async {
+    await AppDb.instance.setReplaceRuleEnabled(id, enabled);
+    await refresh();
+  }
+
+  Future<void> delete(int id) async {
+    await AppDb.instance.deleteReplaceRule(id);
+    await refresh();
+  }
+
+  Future<void> deleteBatch(List<int> ids) async {
+    await AppDb.instance.deleteReplaceRules(ids);
+    await refresh();
+  }
+
+  /// 导入 JSON（阅读3.0 或书径格式），返回新增数
+  Future<int> importJson(String content) async {
+    final rules = Replacer.parseImport(content);
+    final n = await AppDb.instance.importReplaceRules(rules);
+    await refresh();
+    return n;
+  }
+
+  Future<int> addPresets() async {
+    final n = await AppDb.instance.importReplaceRules(Replacer.presets);
+    await refresh();
+    return n;
+  }
+}
+
+final replaceRulesProvider = AsyncNotifierProvider<ReplaceRulesNotifier,
+    List<ReplaceRule>>(ReplaceRulesNotifier.new);
 
 // ---------- 设置 ----------
 class Settings {

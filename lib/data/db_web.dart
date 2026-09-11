@@ -84,6 +84,15 @@ class AppDb {
         day TEXT NOT NULL,
         seconds INTEGER NOT NULL DEFAULT 0
       )''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS replace_rules(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        pattern TEXT NOT NULL,
+        replacement TEXT DEFAULT '',
+        is_regex INTEGER DEFAULT 1,
+        enabled INTEGER DEFAULT 1
+      )''');
   }
 
   // ---------- 书源 ----------
@@ -113,6 +122,77 @@ class AppDb {
   Future<void> deleteSource(int id) async {
     final db = await database;
     await db.delete('sources', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteSources(List<int> ids) async {
+    if (ids.isEmpty) return;
+    final db = await database;
+    await db.delete('sources',
+        where: 'id IN (${ids.map((_) => '?').join(',')})',
+        whereArgs: ids);
+  }
+
+  Future<void> setSourcesEnabled(List<int> ids, bool enabled) async {
+    if (ids.isEmpty) return;
+    final db = await database;
+    await db.update('sources', {'enabled': enabled ? 1 : 0},
+        where: 'id IN (${ids.map((_) => '?').join(',')})', whereArgs: ids);
+  }
+
+  // ---------- 净化规则 ----------
+
+  Future<List<ReplaceRule>> replaceRules() async {
+    final db = await database;
+    final rows = await db.query('replace_rules', orderBy: 'id ASC');
+    return rows.map(ReplaceRule.fromRow).toList();
+  }
+
+  Future<void> insertReplaceRule(ReplaceRule r) async {
+    final db = await database;
+    final row = r.toRow()..remove('id');
+    await db.insert('replace_rules', row);
+  }
+
+  Future<void> updateReplaceRule(ReplaceRule r) async {
+    final db = await database;
+    final row = r.toRow()..remove('id');
+    await db.update('replace_rules', row,
+        where: 'id = ?', whereArgs: [r.id]);
+  }
+
+  Future<void> deleteReplaceRule(int id) async {
+    final db = await database;
+    await db.delete('replace_rules', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteReplaceRules(List<int> ids) async {
+    if (ids.isEmpty) return;
+    final db = await database;
+    await db.delete('replace_rules',
+        where: 'id IN (${ids.map((_) => '?').join(',')})',
+        whereArgs: ids);
+  }
+
+  Future<void> setReplaceRuleEnabled(int id, bool enabled) async {
+    final db = await database;
+    await db.update('replace_rules', {'enabled': enabled ? 1 : 0},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// 批量导入，按 name+pattern 去重
+  Future<int> importReplaceRules(List<ReplaceRule> list) async {
+    if (list.isEmpty) return 0;
+    final db = await database;
+    var n = 0;
+    for (final r in list) {
+      final rows = await db.query('replace_rules',
+          where: 'name = ? AND pattern = ?',
+          whereArgs: [r.name, r.pattern], limit: 1);
+      if (rows.isNotEmpty) continue;
+      await db.insert('replace_rules', r.toRow()..remove('id'));
+      n++;
+    }
+    return n;
   }
 
   // ---------- 书籍 ----------

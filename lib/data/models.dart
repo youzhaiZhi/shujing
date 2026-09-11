@@ -275,3 +275,75 @@ class SearchBook {
   final Book book;
   SearchBook(this.source, this.book);
 }
+
+/// 净化（替换）规则 —— 参考阅读3.0 的「替换规则」
+/// pattern 为正则（isRegex=true）或纯文本（isRegex=false），
+/// 命中后整体替换为 replacement。用于清洗正文里的广告、水印、引导语等。
+class ReplaceRule {
+  final int? id;
+  final String name;
+  final String pattern;
+  final String replacement;
+  final bool isRegex;
+  final bool enabled;
+
+  const ReplaceRule({
+    this.id,
+    required this.name,
+    required this.pattern,
+    this.replacement = '',
+    this.isRegex = true,
+    this.enabled = true,
+  });
+
+  ReplaceRule copyWith({
+    int? id,
+    String? name,
+    String? pattern,
+    String? replacement,
+    bool? isRegex,
+    bool? enabled,
+  }) =>
+      ReplaceRule(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        pattern: pattern ?? this.pattern,
+        replacement: replacement ?? this.replacement,
+        isRegex: isRegex ?? this.isRegex,
+        enabled: enabled ?? this.enabled,
+      );
+
+  factory ReplaceRule.fromJson(Map<String, dynamic> j) => ReplaceRule(
+        name: (j['name'] ?? '未命名').toString(),
+        pattern: (j['pattern'] ?? j['regex'] ?? '').toString(),
+        replacement: (j['replacement'] ?? '').toString(),
+        isRegex: j['isRegex'] != false,
+        enabled: j['isEnabled'] != false && j['enabled'] != false,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'pattern': pattern,
+        'replacement': replacement,
+        'isRegex': isRegex,
+        'isEnabled': enabled,
+      };
+
+  Map<String, dynamic> toRow() => {
+        if (id != null) 'id': id,
+        'name': name,
+        'pattern': pattern,
+        'replacement': replacement,
+        'is_regex': isRegex ? 1 : 0,
+        'enabled': enabled ? 1 : 0,
+      };
+
+  factory ReplaceRule.fromRow(Map<String, dynamic> r) => ReplaceRule(
+        id: r['id'] as int,
+        name: r['name'] as String,
+        pattern: r['pattern'] as String,
+        replacement: (r['replacement'] ?? '') as String,
+        isRegex: (r['is_regex'] ?? 1) == 1,
+        enabled: (r['enabled'] ?? 1) == 1,
+      );
+}

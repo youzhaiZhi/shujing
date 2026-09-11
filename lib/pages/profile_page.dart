@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'replace_rules_page.dart';
 import '../state/providers.dart';
 import '../widgets/glass.dart';
 
@@ -95,6 +96,18 @@ class ProfilePage extends ConsumerWidget {
                   trailing: Text('${settings.ttsRate.toStringAsFixed(1)}x',
                       style: TextStyle(color: scheme.primary)),
                   onTap: () => _ttsDialog(context, ref, settings),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.auto_fix_high_outlined),
+                  title: const Text('净化规则'),
+                  subtitle: const Text('正则清除正文广告与杂质',
+                      style: TextStyle(fontSize: 12)),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const ReplaceRulesPage()),
+                  ),
                 ),
               ],
             ),
