@@ -45,7 +45,9 @@ jobs:
       # 从 pubspec.yaml 读取版本号（如 0.1.2+3 -> 0.1.2）
       - name: Read version
         id: ver
-        run: echo "v=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)" >> "$GITHUB_OUTPUT"
+        run: |
+          V=$(sed -n 's/^version:[[:space:]]*\([0-9.]*\).*/\1/p' pubspec.yaml)
+          echo "v=$V" >> "$GITHUB_OUTPUT"
 
       - name: Rename APK
         run: cp build/app/outputs/flutter-apk/app-release.apk shujing-v${{ steps.ver.outputs.v }}.apk
